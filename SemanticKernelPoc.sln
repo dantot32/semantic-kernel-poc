@@ -5,7 +5,7 @@ VisualStudioVersion = 17.10.35027.167
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Gpt4oMini", "gpt-4o-mini\Gpt4oMini.csproj", "{19C9D49E-22D3-44BE-9D6B-924E24AFF502}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OllamaSelfHost", "OllamaSelfHost\OllamaSelfHost.csproj", "{B9224306-EE2B-43C7-A213-7ABB5F044229}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OllamaSelfHost", "ollama-self-host\OllamaSelfHost.csproj", "{B9224306-EE2B-43C7-A213-7ABB5F044229}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

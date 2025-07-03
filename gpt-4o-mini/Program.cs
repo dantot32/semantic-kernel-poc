@@ -7,6 +7,7 @@ using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Microsoft.SemanticKernel.TextToAudio;
 using Spectre.Console;
 using NAudio.Wave;
+using OpenAI.Chat;
 
 AnsiConsole.MarkupLine("[bold yellow]Premi Alt+R per iniziare la registrazione e di nuovo Alt+R per terminare...[/]");
 
@@ -55,7 +56,7 @@ OpenAITextToAudioExecutionSettings textToAudioSettings = new()
 
 // statefull logic
 ChatHistory history = new();
-//history.AddUserMessage("Ti chiami Guerino e lavori all'ufficio anagrafe. L'unica domanda a cui puoi rispondere è sull'età delle persone che conosci. Puoi anche fare un regalo alle persone che conosci.");
+
 history.AddUserMessage("Sei un agente turistico. Il tuo scopo è prendere prenotazioni alberghiere. Nella prenotazione ti deve essere indicato: il nome e cognome del prenotante, data di arrivo e partenza, albergo.");
 
 while (true)

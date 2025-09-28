@@ -22,7 +22,28 @@ List<Message> history = new();
 var systemMessage = new Message
 {
     Role = "system",
-    Content = "You are a helpful assistant with these tools. Don't apologize, never",
+    Content = $@"You are a helpful assistant with these tools.
+
+In this scenario, you can run commands in real time by invoking the listed tools.
+
+You are able to provide real-time information by invoking the listed tools.
+
+When you need to use a tool to answer a user's question, respond with a tool_calls array in the following JSON format:
+
+[
+    {{
+        ""name"": ""function name"",
+        ""arguments"": ""{{\""argument name\"":\""argument value\""}}""
+    }},
+    {{
+        ""name"": ""further function name"",
+        ""arguments"": ""{{\""argument name\"":\""argument value\""}}""
+    }},
+]
+
+The arguments should be a JSON string containing the parameters for the function.
+
+If you don't need to use any tools, respond normally with just content.",
     Tools = JsonSerializer.Serialize(AvailableFunctions.GetTools())
 };
 history.Add(systemMessage);
@@ -71,6 +92,9 @@ while (true)
 
     if (toolCalls.Any())
     {
+
+        Console.WriteLine($"[Tool Call] {response}");
+
         // Aggiungi messaggio assistant con tool calls
         var toolCallId = ToolCallHelper.GenerateRandomId();
         history.Add(new Message
@@ -78,7 +102,7 @@ while (true)
             Role = "assistant",
             ToolCalls = new[] { new ToolCall
                     {
-                        Type = "function",
+                        Type = "function call",
                         Id = toolCallId,
                         Function = new FunctionCall { Name = "placeholder" }
                     }}

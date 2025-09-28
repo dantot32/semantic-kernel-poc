@@ -72,6 +72,7 @@ public class ToolCallHelper
         }
         catch (Exception ex)
         {
+            Console.WriteLine($"[Tool Call Attempt] {response}");
             Console.WriteLine($"[DEBUG] Could not parse tool calls: {ex.Message}");
         }
 

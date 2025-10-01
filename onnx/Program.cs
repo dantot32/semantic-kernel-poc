@@ -1,6 +1,7 @@
 ﻿using Microsoft.ML.OnnxRuntimeGenAI;
 using SkOnnx;
 using System.Text.Json;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "models",
            "Phi-4-mini-instruct-onnx", "cpu_and_mobile", "cpu-int4-rtn-block-32-acc-level-4");
@@ -9,6 +10,8 @@ using OgaHandle ogaHandle = new OgaHandle();
 using Config config = new Config(modelPath);
 using Model model = new Model(config);
 using Tokenizer tokenizer = new Tokenizer(model);
+
+var toolList = JsonSerializer.Serialize(AvailableFunctions.GetTools());
 
 using GeneratorParams generatorParams = new GeneratorParams(model);
 generatorParams.SetSearchOption("max_length", 4096);
@@ -24,27 +27,21 @@ var systemMessage = new Message
     Role = "system",
     Content = $@"You are a helpful assistant with these tools.
 
-In this scenario, you can run commands in real time by invoking the listed tools.
+{toolList}
 
-You are able to provide real-time information by invoking the listed tools.
+In addition to plain text responses, you can chose to call one or more of the provided functions.
 
-When you need to use a tool to answer a user's question, respond with a tool_calls array in the following JSON format:
+Use the following rule to decide when to call a function:
+  * if the response can be generated from your internal knowledge (e.g., as in the case of queries like ""What is the capital of Poland?""), do so
+  * if you need external information that can be obtained by calling one or more of the provided functions, generate a function calls
 
-[
-    {{
-        ""name"": ""function name"",
-        ""arguments"": ""{{\""argument name\"":\""argument value\""}}""
-    }},
-    {{
-        ""name"": ""further function name"",
-        ""arguments"": ""{{\""argument name\"":\""argument value\""}}""
-    }},
-]
-
-The arguments should be a JSON string containing the parameters for the function.
-
-If you don't need to use any tools, respond normally with just content.",
-    Tools = JsonSerializer.Serialize(AvailableFunctions.GetTools())
+If you decide to call functions:
+  * prefix function calls with functools marker (no closing marker required)
+  * all function calls should be generated in a single JSON list formatted as [{{""name"": [function name], ""arguments"": [function arguments as JSON]}}, ...]
+  * follow the provided JSON schema. Do not hallucinate arguments or values. Do to blindly copy values from the provided samples
+  * respect the argument type formatting. E.g., if the type if number and format is float, write value 7 as 7.0
+  * make sure you pick the right functions that match the user intent",
+    Tools = toolList
 };
 history.Add(systemMessage);
 
@@ -53,29 +50,17 @@ while (true)
     Console.Write("User > ");
     string? prompt = Console.ReadLine();
 
+    // add message to history
     history.Add(new Message
     {
         Role = "user",
         Content = prompt
     });
 
-    var messages = history.Select(msg => new
-    {
-        role = msg.Role,
-        content = msg.Content,
-        tools = msg.Tools,
-        tool_calls = msg.ToolCalls,
-        tool_call_id = msg.ToolCallId,
-        name = msg.Name
-    }).Where(msg => !string.IsNullOrEmpty(msg.content) ||
-                   !string.IsNullOrEmpty(msg.tools) ||
-                   msg.tool_calls != null ||
-                   !string.IsNullOrEmpty(msg.tool_call_id));
-
-    var messagesJson = JsonSerializer.Serialize(messages.ToArray());
+    var messagesJson = JsonSerializer.Serialize(history.ToArray());
 
     var chatTemplate = tokenizer.ApplyChatTemplate("", messagesJson, "", true);
-    //Console.WriteLine($"{chatTemplate}");
+
     var sequences = tokenizer.Encode(chatTemplate);
 
     generator.AppendTokenSequences(sequences);
@@ -88,6 +73,7 @@ while (true)
         response += token;
     }
 
+    // for example model should return syimply: Functools[{"name": "get_current_time", "arguments": {}}]
     var toolCalls = ToolCallHelper.ExtractToolCalls(response);
 
     if (toolCalls.Any())
@@ -95,77 +81,49 @@ while (true)
 
         Console.WriteLine($"[Tool Call] {response}");
 
-        // Aggiungi messaggio assistant con tool calls
-        var toolCallId = ToolCallHelper.GenerateRandomId();
+        // 1. add assistant message with tool calls
         history.Add(new Message
         {
             Role = "assistant",
-            ToolCalls = new[] { new ToolCall
-                    {
-                        Type = "function call",
-                        Id = toolCallId,
-                        Function = new FunctionCall { Name = "placeholder" }
-                    }}
+            Content = JsonSerializer.Serialize(toolCalls.ToArray())
         });
 
-        // Esegui ogni function call
+        // 2. execute each call
+        List<ToolCallOutput> outputs = new();
         foreach (var toolCall in toolCalls)
         {
             try
             {
-                var result = AvailableFunctions.ExecuteFunction(toolCall.Name, toolCall.Arguments);
-
-                Console.WriteLine($"[Function {toolCall.Name}] {result}");
-
-                // Aggiungi risultato tool
-                history.Add(new Message
-                {
-                    Role = "tool",
-                    ToolCallId = toolCallId,
-                    Name = toolCall.Name,
-                    Content = result
-                });
-
-                //var finalResponse = GenerateResponse();
-                //Console.WriteLine($"Assistant > {finalResponse}");
-
-                //history.Add(new Message
-                //{
-                //    Role = "assistant",
-                //    Content = finalResponse
-                //});
-                messages = history.Select(msg => new
-                {
-                    role = msg.Role,
-                    content = msg.Content,
-                    tools = msg.Tools,
-                    tool_calls = msg.ToolCalls,
-                    tool_call_id = msg.ToolCallId,
-                    name = msg.Name
-                }).Where(msg => !string.IsNullOrEmpty(msg.content) ||
-                               !string.IsNullOrEmpty(msg.tools) ||
-                               msg.tool_calls != null ||
-                               !string.IsNullOrEmpty(msg.tool_call_id));
-
-                messagesJson = JsonSerializer.Serialize(messages.ToArray());
-
-                chatTemplate = tokenizer.ApplyChatTemplate("", messagesJson, "", true);
-                //Console.WriteLine($"{chatTemplate}");
-                sequences = tokenizer.Encode(chatTemplate);
-
-                generator.AppendTokenSequences(sequences);
-                while (!generator.IsDone())
-                {
-                    generator.GenerateNextToken();
-                    var lastTokenId = generator.GetSequence(0)[^1];
-                    var token = tokenizerStream.Decode(lastTokenId);
-                    Console.Write(token);
-                }
+                var toolCallOutput = AvailableFunctions.ExecuteTool(toolCall);
+                Console.WriteLine($"[Tool Call Output: {toolCall.Name}] {toolCallOutput.Output}");
+                outputs.Add(toolCallOutput);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[ERROR] Function execution failed: {ex.Message}");
             }
+        }
+
+        // 3. return final response
+        history.Add(new Message
+        {
+            Role = "assistant",
+            Content = JsonSerializer.Serialize(outputs.ToArray())
+        });
+
+        messagesJson = JsonSerializer.Serialize(history.ToArray());
+
+        chatTemplate = tokenizer.ApplyChatTemplate("", messagesJson, "", true);
+
+        sequences = tokenizer.Encode(chatTemplate);
+
+        generator.AppendTokenSequences(sequences);
+        while (!generator.IsDone())
+        {
+            generator.GenerateNextToken();
+            var lastTokenId = generator.GetSequence(0)[^1];
+            var token = tokenizerStream.Decode(lastTokenId);
+            Console.Write(token);
         }
     }
     else

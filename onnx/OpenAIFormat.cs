@@ -3,70 +3,54 @@ using System.Text.Json.Serialization;
 
 namespace SkOnnx;
 
-public class ParameterDefinition
-{
-    [JsonPropertyName("description")]
-    public string Description { get; set; } = "";
+#region tool definition
 
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = "";
-
-    [JsonPropertyName("default")]
-    public object? Default { get; set; }
-}
+// Functions versus tools: A function is a specific kind of tool, defined by a JSON schema
 
 public class ToolDefinition
 {
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = "";
-
-    [JsonPropertyName("description")]
-    public string Description { get; set; } = "";
-
-    [JsonPropertyName("parameters")]
-    public Dictionary<string, ParameterDefinition> Parameters { get; set; } = new();
+    [JsonPropertyName("type")] public string Type { get; set; } = "function";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("description")] public string Description { get; set; } = "";
+    [JsonPropertyName("parameters")] public Dictionary<string, ParameterDefinition> Parameters { get; set; } = new();
 }
 
-public class FunctionCall
+public class ParameterDefinition
 {
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = "";
-
-    [JsonPropertyName("arguments")]
-    public Dictionary<string, object> Arguments { get; set; } = new();
+    [JsonPropertyName("type")] public string Type { get; set; } = "";
+    [JsonPropertyName("description")] public string Description { get; set; } = "";
+    [JsonPropertyName("default")] public object? Default { get; set; }
 }
 
+#endregion
+
+#region tool call (response from model)
 public class ToolCall
 {
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = "function";
-
-    [JsonPropertyName("id")]
-    public string Id { get; set; } = "";
-
-    [JsonPropertyName("function")]
-    public FunctionCall Function { get; set; } = new();
+    [JsonPropertyName("type")] public string Type { get; set; } = "function_call";
+    [JsonPropertyName("call_id")] public string CallId { get; set; } = ""; // used later to submit the function result
+    [JsonPropertyName("name")] public string Name { get; set; } = ""; // deserialized from model response
+    [JsonPropertyName("arguments")] public Dictionary<string, object> Arguments { get; set; } = new(); // deserialized from model response
 }
+
+#endregion
+
+#region tool call output
+
+public class ToolCallOutput
+{
+    [JsonPropertyName("type")] public string Type { get; set; } = "function_call_output";
+    [JsonPropertyName("call_id")] public string CallId { get; set; } = ToolCallHelper.GenerateRandomId();
+    [JsonPropertyName("output")] public string Output { get; set; } = "";
+}
+
+#endregion
 
 public class Message
 {
-    [JsonPropertyName("role")]
-    public string Role { get; set; } = "";
-
-    [JsonPropertyName("content")]
-    public string? Content { get; set; }
-
-    [JsonPropertyName("tools")]
-    public string? Tools { get; set; }
-
-    [JsonPropertyName("tool_calls")]
-    public ToolCall[]? ToolCalls { get; set; }
-
-    [JsonPropertyName("tool_call_id")]
-    public string? ToolCallId { get; set; }
-
-    [JsonPropertyName("name")]
-    public string? Name { get; set; }
+    [JsonPropertyName("role")] public string Role { get; set; } = ""; // system, assistant or user
+    [JsonPropertyName("content")] public string? Content { get; set; }
+    [JsonPropertyName("tools")] public string? Tools { get; set; } // available list of tools in json
 }
 public static class AvailableFunctions
 {
@@ -116,14 +100,18 @@ public static class AvailableFunctions
         };
     }
 
-    public static string ExecuteFunction(string functionName, Dictionary<string, object> arguments)
+    public static ToolCallOutput ExecuteTool(ToolCall call)
     {
-        return functionName switch
+        return new ToolCallOutput
         {
-            "get_weather" => GetWeather(arguments),
-            "calculate" => Calculate(arguments),
-            "get_current_time" => GetCurrentTime(),
-            _ => JsonSerializer.Serialize(new { error = "Function not found" })
+            CallId = call.CallId,
+            Output = call.Name switch
+            {
+                "get_weather" => GetWeather(call.Arguments),
+                "calculate" => Calculate(call.Arguments),
+                "get_current_time" => GetCurrentTime(),
+                _ => JsonSerializer.Serialize(new { error = "Function not found" })
+            }
         };
     }
 

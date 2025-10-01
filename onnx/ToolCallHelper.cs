@@ -44,18 +44,18 @@ public class ToolCallHelper
         //return response.Trim();
     //}
 
-    public static List<FunctionCall> ExtractToolCalls(string response)
+    public static List<ToolCall> ExtractToolCalls(string response)
     {
-        var toolCalls = new List<FunctionCall>();
+        var output = new List<ToolCall>();
 
         try
         {
             // Prova prima il parsing JSON diretto
             if (response.TrimStart().StartsWith("["))
             {
-                var functionCalls = JsonSerializer.Deserialize<FunctionCall[]>(response);
-                if (functionCalls != null)
-                    toolCalls.AddRange(functionCalls);
+                var toolCalls = JsonSerializer.Deserialize<ToolCall[]>(response);
+                if (toolCalls != null)
+                    output.AddRange(toolCalls);
             }
             else
             {
@@ -64,9 +64,9 @@ public class ToolCallHelper
                 if (jsonMatch.Success)
                 {
                     var jsonPart = jsonMatch.Value;
-                    var functionCalls = JsonSerializer.Deserialize<FunctionCall[]>(jsonPart);
-                    if (functionCalls != null)
-                        toolCalls.AddRange(functionCalls);
+                    var toolCalls = JsonSerializer.Deserialize<ToolCall[]>(jsonPart);
+                    if (toolCalls != null)
+                        output.AddRange(toolCalls);
                 }
             }
         }
@@ -76,7 +76,7 @@ public class ToolCallHelper
             Console.WriteLine($"[DEBUG] Could not parse tool calls: {ex.Message}");
         }
 
-        return toolCalls;
+        return output;
     }
 
     public static string GenerateRandomId()

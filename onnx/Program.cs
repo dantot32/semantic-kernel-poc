@@ -1,7 +1,6 @@
 ﻿using Microsoft.ML.OnnxRuntimeGenAI;
-using SkOnnx;
+using PhiOnnxFuncCalling;
 using System.Text.Json;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "models",
            "Phi-4-mini-instruct-onnx", "cpu_and_mobile", "cpu-int4-rtn-block-32-acc-level-4");
@@ -11,7 +10,7 @@ using Config config = new Config(modelPath);
 using Model model = new Model(config);
 using Tokenizer tokenizer = new Tokenizer(model);
 
-var toolList = JsonSerializer.Serialize(AvailableFunctions.GetTools());
+var toolList = JsonSerializer.Serialize(ToolCallHelper.GetTools());
 
 using GeneratorParams generatorParams = new GeneratorParams(model);
 generatorParams.SetSearchOption("max_length", 4096);
@@ -25,7 +24,7 @@ List<Message> history = new();
 var systemMessage = new Message
 {
     Role = "system",
-    Content = $@"You are a helpful assistant with these tools.
+    Content = $@"You are a helpful assistant with these tools:
 
 {toolList}
 
@@ -37,7 +36,7 @@ Use the following rule to decide when to call a function:
 
 If you decide to call functions:
   * prefix function calls with functools marker (no closing marker required)
-  * all function calls should be generated in a single JSON list formatted as [{{""name"": [function name], ""arguments"": [function arguments as JSON]}}, ...]
+  * all function calls should be generated in a single JSON list formatted as Functools[{{""name"": [function name], ""arguments"": [function arguments as JSON]}}, ...]
   * follow the provided JSON schema. Do not hallucinate arguments or values. Do to blindly copy values from the provided samples
   * respect the argument type formatting. E.g., if the type if number and format is float, write value 7 as 7.0
   * make sure you pick the right functions that match the user intent",
@@ -50,7 +49,7 @@ while (true)
     Console.Write("User > ");
     string? prompt = Console.ReadLine();
 
-    // add message to history
+    // enrich history
     history.Add(new Message
     {
         Role = "user",
@@ -58,12 +57,10 @@ while (true)
     });
 
     var messagesJson = JsonSerializer.Serialize(history.ToArray());
-
     var chatTemplate = tokenizer.ApplyChatTemplate("", messagesJson, "", true);
-
     var sequences = tokenizer.Encode(chatTemplate);
-
     generator.AppendTokenSequences(sequences);
+
     var response = "";
     while (!generator.IsDone())
     {
@@ -74,12 +71,14 @@ while (true)
     }
 
     // for example model should return syimply: Functools[{"name": "get_current_time", "arguments": {}}]
-    var toolCalls = ToolCallHelper.ExtractToolCalls(response);
+    var toolCalls = ToolCallHelper.TryExtractCalls(response);
 
     if (toolCalls.Any())
     {
 
+#if DEBUG
         Console.WriteLine($"[Tool Call] {response}");
+#endif
 
         // 1. add assistant message with tool calls
         history.Add(new Message
@@ -94,9 +93,12 @@ while (true)
         {
             try
             {
-                var toolCallOutput = AvailableFunctions.ExecuteTool(toolCall);
-                Console.WriteLine($"[Tool Call Output: {toolCall.Name}] {toolCallOutput.Output}");
+                var toolCallOutput = ToolCallHelper.TryExecuteTool(toolCall);
                 outputs.Add(toolCallOutput);
+
+#if DEBUG
+                Console.WriteLine($"[Tool Call Output: {toolCall.Name}] {toolCallOutput.Output}");
+#endif
             }
             catch (Exception ex)
             {
@@ -112,12 +114,10 @@ while (true)
         });
 
         messagesJson = JsonSerializer.Serialize(history.ToArray());
-
         chatTemplate = tokenizer.ApplyChatTemplate("", messagesJson, "", true);
-
         sequences = tokenizer.Encode(chatTemplate);
-
         generator.AppendTokenSequences(sequences);
+
         while (!generator.IsDone())
         {
             generator.GenerateNextToken();
@@ -128,8 +128,14 @@ while (true)
     }
     else
     {
-        // Risposta normale senza function calls
-        Console.WriteLine($"Assistant > {response}");
+        // normal response without tool call
+        Console.Write("Assistant > ");
+        foreach (var word in response.Split(" "))
+        {
+            Thread.Sleep(500);
+            Console.Write($"{word} ");
+        }
+            
         history.Add(new Message
         {
             Role = "assistant",

@@ -1,73 +1,70 @@
-﻿using Microsoft.ML.OnnxRuntimeGenAI;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace SkOnnx;
+namespace PhiOnnxFuncCalling;
 
 public class ToolCallHelper
 {
-    //public static string GenerateResponse(List<Message> history)
-    //{
-        //// Crea array di messaggi come nello script Python
-        //var messages = history.Select(msg => new
-        //{
-        //    role = msg.Role,
-        //    content = msg.Content,
-        //    tools = msg.Tools,
-        //    tool_calls = msg.ToolCalls,
-        //    tool_call_id = msg.ToolCallId,
-        //    name = msg.Name
-        //}).Where(msg => !string.IsNullOrEmpty(msg.content) ||
-        //                !string.IsNullOrEmpty(msg.tools) ||
-        //                msg.tool_calls != null ||
-        //                !string.IsNullOrEmpty(msg.tool_call_id));
-
-        //var messagesJson = JsonSerializer.Serialize(messages.ToArray());
-        ////Console.WriteLine($"[DEBUG] Messages: {messagesJson}");
-
-        //// Usa il chat template come nello script Python
-        //var chatTemplate = tokenizer.ApplyChatTemplate("", messagesJson, "", true);
-        //var sequences = tokenizer.Encode(chatTemplate);
-
-        //using var generator = new Generator(model, generatorParams);
-        //generator.AppendTokenSequences(sequences);
-
-        //var response = "";
-        //while (!generator.IsDone())
-        //{
-        //    generator.GenerateNextToken();
-        //    var lastTokenId = generator.GetSequence(0)[^1];
-        //    var token = tokenizerStream.Decode(lastTokenId);
-        //    response += token;
-        //}
-
-        //return response.Trim();
-    //}
-
-    public static List<ToolCall> ExtractToolCalls(string response)
+    public static List<ToolDefinition> GetTools()
     {
-        var output = new List<ToolCall>();
+        return new List<ToolDefinition>
+        {
+            new ToolDefinition
+            {
+                Name = "get_weather",
+                Description = "Get current weather information for a specific city",
+                Parameters = new ParametersDefinition
+                {
+                    Properties = new Dictionary<string, ParameterDefinition>
+                    {
+                        ["city"] = new ParameterDefinition
+                        {
+                            Description = "The name of the city",
+                            Type = "str"
+                        },
+                        ["unit"] = new ParameterDefinition
+                        {
+                            Description = "Temperature unit",
+                            Type = "str"
+                        }
+                    },
+                    Required = new[] { "city" }
+                }
+            },
+            new ToolDefinition
+            {
+                Name = "get_current_time",
+                Description = "Get the current date and time",
+                Parameters = new ParametersDefinition()
+            }
+        };
+    }
+
+    public static List<ToolCall> TryExtractCalls(string response)
+    {
+        
+        List<ToolCall> result = new();
 
         try
         {
-            // Prova prima il parsing JSON diretto
+            ToolCall[] output = [];
+
+            // try direct parsing for clean reponse
             if (response.TrimStart().StartsWith("["))
-            {
-                var toolCalls = JsonSerializer.Deserialize<ToolCall[]>(response);
-                if (toolCalls != null)
-                    output.AddRange(toolCalls);
-            }
+                output = JsonSerializer.Deserialize<ToolCall[]>(response);
             else
             {
-                // Cerca pattern JSON nell'output come nello script Python
+                // use regex to parse dirty response
                 var jsonMatch = Regex.Match(response, @"\[.*?\]", RegexOptions.Singleline);
                 if (jsonMatch.Success)
-                {
-                    var jsonPart = jsonMatch.Value;
-                    var toolCalls = JsonSerializer.Deserialize<ToolCall[]>(jsonPart);
-                    if (toolCalls != null)
-                        output.AddRange(toolCalls);
-                }
+                    output = JsonSerializer.Deserialize<ToolCall[]>(jsonMatch.Value);
+            }
+
+            for (int i = 0; i < output.Length; i++)
+            {
+                var tool = output[i];
+                tool.CallId = GenerateRandomId();
+                result.Add(tool);
             }
         }
         catch (Exception ex)
@@ -76,8 +73,45 @@ public class ToolCallHelper
             Console.WriteLine($"[DEBUG] Could not parse tool calls: {ex.Message}");
         }
 
-        return output;
+        return result;
     }
+
+    public static ToolCallOutput TryExecuteTool(ToolCall call)
+    {
+        return new ToolCallOutput
+        {
+            CallId = call.CallId,
+            Output = call.Name switch
+            {
+                "get_weather" => GetWeather(call.Arguments),
+                "get_current_time" => GetCurrentTime(),
+                _ => JsonSerializer.Serialize(new { error = "Function not found" })
+            }
+        };
+    }
+
+    #region tool implementation
+
+    private static string GetWeather(Dictionary<string, object> arguments)
+    {
+        var city = arguments.GetValueOrDefault("city", "unknown city").ToString()!;
+        var unit = arguments.GetValueOrDefault("unit", "celsius").ToString()!;
+
+        var random = new Random();
+        var temp = unit == "fahrenheit" ? random.Next(32, 100) : random.Next(0, 38);
+
+        return $"The weather in {city} is {temp}°{(unit == "celsius" ? "C" : "F")} and sunny.";
+    }
+
+    private static string GetCurrentTime()
+    {
+        var now = DateTime.Now;
+        return $"Current time is {now:yyyy-MM-dd HH:mm:ss} ({TimeZoneInfo.Local.DisplayName})";
+    }
+
+    #endregion
+
+    #region utils
 
     public static string GenerateRandomId()
     {
@@ -86,4 +120,6 @@ public class ToolCallHelper
         return new string(Enumerable.Repeat(chars, 9)
             .Select(s => s[random.Next(s.Length)]).ToArray());
     }
+
+    #endregion
 }
